@@ -9,6 +9,19 @@ defmodule ElevatorApiWeb.Router do
     pipe_through :api
   end
 
+  scope "/" do
+    pipe_through :api
+
+    forward "/graphql",
+            Absinthe.Plug,
+            schema: ElevatorApiWeb.Schema
+
+    forward "/graphiql",
+            Absinthe.Plug.GraphiQL,
+            schema: ElevatorApiWeb.Schema,
+            interface: :simple
+  end
+
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:elevator_api, :dev_routes) do
     # If you want to use the LiveDashboard in production, you should put
