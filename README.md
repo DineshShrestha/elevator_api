@@ -10,9 +10,11 @@ Implemented so far:
   * `Elevators.ElevatorState` struct representing one elevator's runtime state (floor, direction, door state, mode, pending requests)
   * `Elevators.ElevatorServer`, a GenServer per elevator (registered in `ElevatorApi.Elevators.Registry`, supervised by `ElevatorApi.Elevators.ElevatorSupervisor`), started for every persisted elevator on boot
   * `Elevators.GroupController`, implementing the hall request assignment rules from the design notes: eligibility (rejects maintenance/emergency/out-of-service elevators), a distance + direction-penalty + pending-stop-penalty score, with elevator ID as the tie-break
-  * GraphQL: `elevators`/`elevator(id)` and `buildings`/`building(id)` queries, `requestHallCall(floor, direction)`, and full CRUD mutations for buildings/elevators (`createBuilding`/`updateBuilding`/`deleteBuilding`, `createElevator`/`updateElevator`/`deleteElevator`) — creating/updating/deleting an elevator starts/restarts/stops its `ElevatorServer` accordingly, and deleting a building stops every elevator that belonged to it
+  * GraphQL: `elevators`/`elevator(id)` and `buildings`/`building(id)` queries, `requestHallCall(buildingId, floor, direction)`, and full CRUD mutations for buildings/elevators (`createBuilding`/`updateBuilding`/`deleteBuilding`, `createElevator`/`updateElevator`/`deleteElevator`) — creating/updating/deleting an elevator starts/restarts/stops its `ElevatorServer` accordingly, and deleting a building stops every elevator that belonged to it. `requestHallCall` only assigns among elevators belonging to the given building, and rejects a floor outside that building's range.
   * `Elevators.Scheduler`, a discrete-tick movement simulation: once assigned a request, an elevator picks a target floor, travels one floor per tick (`config :elevator_api, :elevator_tick_interval_ms`, default 1000ms), opens its door on arrival, then closes it and goes idle — all reflected live in `ElevatorState`'s `direction`/`movement_state`/`door_state`/`current_target`/pending fields
   * API-key auth on `/graphql` (`x-api-key` header, checked with a constant-time comparison) — required in every environment; `/graphiql` is now dev-only (gated behind `dev_routes`, alongside LiveDashboard)
+  * State durability: each elevator's live state is persisted (`elevators.state`, jsonb) on every request/tick and restored on boot, so a crash or redeploy resumes in place instead of resetting every elevator to idle at its min floor
+  * CI (`.github/workflows/ci.yml`): `mix format --check-formatted` and `mix test` run against a Postgres service container on every push/PR
 
 Known simplifications: once en route to a target floor, an elevator won't reroute mid-transit even if a closer request arrives — it finishes the current target, then re-scans for the next one; updating an elevator's floor range restarts its GenServer, resetting its live state (in-flight requests are dropped). See [`notes/`](notes) for the design docs:
 
@@ -32,7 +34,7 @@ Every request to `/graphql` requires an `x-api-key` header — the dev default i
 { elevators { id currentFloor direction mode } }
 
 mutation {
-  requestHallCall(floor: 6, direction: UP) {
+  requestHallCall(buildingId: "1", floor: 6, direction: UP) {
     id
     currentFloor
     direction
