@@ -1,14 +1,30 @@
 defmodule ElevatorApi.Elevators.ElevatorServerTest do
-  # Registers processes in the global ElevatorApi.Elevators.Registry, so this
-  # must not run concurrently with other tests that touch that registry.
-  use ExUnit.Case, async: false
+  # ElevatorServer persists to the DB from its own process (not the test
+  # process), and registers in the global ElevatorApi.Elevators.Registry, so
+  # this must run with a shared sandbox connection and not concurrently with
+  # other tests that touch that registry.
+  use ElevatorApi.DataCase, async: false
 
-  alias ElevatorApi.Elevators.{CarRequest, ElevatorServer, HallRequest}
+  alias ElevatorApi.Buildings
+  alias ElevatorApi.Elevators
+  alias ElevatorApi.Elevators.{CarRequest, ElevatorServer, ElevatorSupervisor, HallRequest}
 
   setup do
     id = System.unique_integer([:positive])
     start_supervised!({ElevatorServer, %{id: id, min_floor: 1, max_floor: 10}})
     %{id: id}
+  end
+
+  defp create_persisted_elevator! do
+    {:ok, building} =
+      Buildings.create_building(%{name: "Office Tower", min_floor: 1, max_floor: 10})
+
+    {:ok, elevator} =
+      Elevators.create_elevator(%{building_id: building.id, min_floor: 1, max_floor: 10})
+
+    on_exit(fn -> ElevatorSupervisor.stop_elevator(elevator.id) end)
+
+    elevator
   end
 
   test "starts at its minimum floor", %{id: id} do
@@ -67,5 +83,40 @@ defmodule ElevatorApi.Elevators.ElevatorServerTest do
     assert state.current_floor == 2
     assert state.door_state == :closed
     assert state.current_target == nil
+  end
+
+  test "recovers in-flight state after a crash/restart instead of resetting" do
+    elevator = create_persisted_elevator!()
+
+    ElevatorServer.add_hall_request(elevator.id, HallRequest.new(3, :up))
+    pid = GenServer.whereis(ElevatorServer.via_tuple(elevator.id))
+
+    # pick target, then move one floor (not yet arrived)
+    send(pid, :tick)
+    send(pid, :tick)
+
+    mid_transit_state = ElevatorServer.get_state(elevator.id)
+    assert mid_transit_state.current_floor == 2
+    assert mid_transit_state.current_target == 3
+
+    # simulate a crash: stop the GenServer directly, bypassing delete_elevator
+    ElevatorSupervisor.stop_elevator(elevator.id)
+    assert Elevators.get_elevator_state(elevator.id) == {:error, :not_found}
+
+    {:ok, persisted} = Elevators.get_elevator(elevator.id)
+
+    {:ok, _pid} =
+      ElevatorSupervisor.start_elevator(%{
+        id: persisted.id,
+        min_floor: persisted.min_floor,
+        max_floor: persisted.max_floor,
+        state: persisted.state
+      })
+
+    recovered_state = ElevatorServer.get_state(elevator.id)
+    assert recovered_state.current_floor == 2
+    assert recovered_state.current_target == 3
+    assert recovered_state.direction == :up
+    assert MapSet.member?(recovered_state.pending_up, 3)
   end
 end

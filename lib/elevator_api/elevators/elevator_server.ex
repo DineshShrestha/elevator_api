@@ -1,12 +1,17 @@
 defmodule ElevatorApi.Elevators.ElevatorServer do
   use GenServer
 
-  alias ElevatorApi.Elevators.{CarRequest, ElevatorState, HallRequest, Scheduler}
+  import Ecto.Query
+
+  alias ElevatorApi.Elevators.{CarRequest, Elevator, ElevatorState, HallRequest, Scheduler}
+  alias ElevatorApi.Repo
 
   @tick_interval_ms Application.compile_env(:elevator_api, :elevator_tick_interval_ms, 1000)
 
-  def start_link(%{id: id, min_floor: min_floor, max_floor: max_floor}) do
-    GenServer.start_link(__MODULE__, {id, min_floor, max_floor}, name: via_tuple(id))
+  def start_link(%{id: id, min_floor: min_floor, max_floor: max_floor} = attrs) do
+    GenServer.start_link(__MODULE__, {id, min_floor, max_floor, attrs[:state]},
+      name: via_tuple(id)
+    )
   end
 
   def via_tuple(id) do
@@ -26,8 +31,14 @@ defmodule ElevatorApi.Elevators.ElevatorServer do
   end
 
   @impl true
-  def init({id, min_floor, max_floor}) do
-    {:ok, ElevatorState.new(id, min_floor, max_floor)}
+  def init({id, min_floor, max_floor, persisted_state}) do
+    state =
+      case persisted_state do
+        nil -> ElevatorState.new(id, min_floor, max_floor)
+        map -> ElevatorState.from_map(map)
+      end
+
+    {:ok, state}
   end
 
   @impl true
@@ -38,24 +49,28 @@ defmodule ElevatorApi.Elevators.ElevatorServer do
   def handle_call({:add_hall_request, %HallRequest{direction: :up, floor: floor}}, _from, state) do
     new_state = %{state | pending_up: MapSet.put(state.pending_up, floor)}
     maybe_start_ticking(state, new_state)
+    persist(new_state)
     {:reply, new_state, new_state}
   end
 
   def handle_call({:add_hall_request, %HallRequest{direction: :down, floor: floor}}, _from, state) do
     new_state = %{state | pending_down: MapSet.put(state.pending_down, floor)}
     maybe_start_ticking(state, new_state)
+    persist(new_state)
     {:reply, new_state, new_state}
   end
 
   def handle_call({:add_car_request, %CarRequest{floor: floor}}, _from, state) do
     new_state = %{state | car_requests: MapSet.put(state.car_requests, floor)}
     maybe_start_ticking(state, new_state)
+    persist(new_state)
     {:reply, new_state, new_state}
   end
 
   @impl true
   def handle_info(:tick, state) do
     new_state = Scheduler.step(state)
+    persist(new_state)
 
     if Scheduler.has_work?(new_state) do
       Process.send_after(self(), :tick, @tick_interval_ms)
@@ -68,5 +83,15 @@ defmodule ElevatorApi.Elevators.ElevatorServer do
     if not Scheduler.has_work?(old_state) and Scheduler.has_work?(new_state) do
       Process.send_after(self(), :tick, @tick_interval_ms)
     end
+  end
+
+  # Write-through persistence so a crash/restart recovers the live state
+  # instead of resetting every elevator to idle at its min floor. A no-op
+  # (matches zero rows) for elevators not backed by a DB row, e.g. in tests.
+  defp persist(state) do
+    from(e in Elevator, where: e.id == ^state.id)
+    |> Repo.update_all(set: [state: ElevatorState.to_map(state)])
+
+    :ok
   end
 end

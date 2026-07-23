@@ -19,21 +19,30 @@ defmodule ElevatorApi.Elevators do
       ElevatorSupervisor.start_elevator(%{
         id: elevator.id,
         min_floor: elevator.min_floor,
-        max_floor: elevator.max_floor
+        max_floor: elevator.max_floor,
+        state: elevator.state
       })
     end)
   end
 
   def list_elevator_states do
     Registry.select(ElevatorApi.Elevators.Registry, [{{:"$1", :_, :_}, [], [:"$1"]}])
-    |> Enum.map(&ElevatorServer.get_state/1)
+    |> Enum.map(&get_elevator_state/1)
+    |> Enum.flat_map(fn
+      {:ok, state} -> [state]
+      {:error, :not_found} -> []
+    end)
   end
 
   def get_elevator_state(id) do
-    case Registry.lookup(ElevatorApi.Elevators.Registry, id) do
-      [{_pid, _value}] -> {:ok, ElevatorServer.get_state(id)}
-      [] -> {:error, :not_found}
-    end
+    {:ok, ElevatorServer.get_state(id)}
+  catch
+    # Covers both "never registered" and "registered but the process died
+    # (e.g. right after a stop_elevator/1 call, before the Registry
+    # processed its DOWN message)" — Registry.lookup alone can't
+    # distinguish these and is racy right after a stop, so we let the call
+    # itself be the source of truth instead of pre-checking the registry.
+    :exit, _ -> {:error, :not_found}
   end
 
   def request_hall_call(building_id, floor, direction) do

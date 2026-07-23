@@ -6,6 +6,7 @@ defmodule ElevatorApi.Elevators.Elevator do
     belongs_to :building, ElevatorApi.Buildings.Building
     field :min_floor, :integer
     field :max_floor, :integer
+    field :state, :map
 
     timestamps(type: :utc_datetime)
   end
