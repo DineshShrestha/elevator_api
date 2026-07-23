@@ -1,21 +1,18 @@
 defmodule ElevatorApiWeb.Plugs.RequireApiKey do
   import Plug.Conn
 
+  alias ElevatorApi.Customers
+
   def init(opts), do: opts
 
   def call(conn, _opts) do
-    expected_key = Application.get_env(:elevator_api, :api_key)
-
-    case get_req_header(conn, "x-api-key") do
-      [given_key] when is_binary(given_key) and is_binary(expected_key) ->
-        if Plug.Crypto.secure_compare(given_key, expected_key) do
-          conn
-        else
-          unauthorized(conn)
-        end
-
-      _ ->
-        unauthorized(conn)
+    with [key] <- get_req_header(conn, "x-api-key"),
+         {:ok, customer} <- Customers.get_customer_by_api_key(key) do
+      conn
+      |> assign(:current_customer, customer)
+      |> Absinthe.Plug.put_options(context: %{current_customer: customer})
+    else
+      _ -> unauthorized(conn)
     end
   end
 

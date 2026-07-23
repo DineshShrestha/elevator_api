@@ -3,6 +3,7 @@ defmodule ElevatorApi.Buildings.Building do
   import Ecto.Changeset
 
   schema "buildings" do
+    belongs_to :customer, ElevatorApi.Customers.Customer
     field :name, :string
     field :address, :string
     field :min_floor, :integer
@@ -13,9 +14,10 @@ defmodule ElevatorApi.Buildings.Building do
 
   def changeset(building, attrs) do
     building
-    |> cast(attrs, [:name, :address, :min_floor, :max_floor])
-    |> validate_required([:name, :min_floor, :max_floor])
+    |> cast(attrs, [:customer_id, :name, :address, :min_floor, :max_floor])
+    |> validate_required([:customer_id, :name, :min_floor, :max_floor])
     |> validate_floor_range()
+    |> foreign_key_constraint(:customer_id)
     |> check_constraint(:min_floor, name: :valid_floor_range)
   end
 

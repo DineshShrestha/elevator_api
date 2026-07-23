@@ -12,7 +12,7 @@ Implemented so far:
   * `Elevators.GroupController`, implementing the hall request assignment rules from the design notes: eligibility (rejects maintenance/emergency/out-of-service elevators), a distance + direction-penalty + pending-stop-penalty score, with elevator ID as the tie-break
   * GraphQL: `elevators`/`elevator(id)` and `buildings`/`building(id)` queries, `requestHallCall(buildingId, floor, direction)`, and full CRUD mutations for buildings/elevators (`createBuilding`/`updateBuilding`/`deleteBuilding`, `createElevator`/`updateElevator`/`deleteElevator`) — creating/updating/deleting an elevator starts/restarts/stops its `ElevatorServer` accordingly, and deleting a building stops every elevator that belonged to it. `requestHallCall` only assigns among elevators belonging to the given building, and rejects a floor outside that building's range.
   * `Elevators.Scheduler`, a discrete-tick movement simulation: once assigned a request, an elevator picks a target floor, travels one floor per tick (`config :elevator_api, :elevator_tick_interval_ms`, default 1000ms), opens its door on arrival, then closes it and goes idle — all reflected live in `ElevatorState`'s `direction`/`movement_state`/`door_state`/`current_target`/pending fields
-  * API-key auth on `/graphql` (`x-api-key` header, checked with a constant-time comparison) — required in every environment; `/graphiql` is now dev-only (gated behind `dev_routes`, alongside LiveDashboard)
+  * Multi-tenant auth: each `Customers.Customer` gets its own API key (shown once at creation, only its SHA-256 hash is stored); every building/elevator is scoped to the customer that owns it, so one customer can never see or control another's — cross-tenant access returns "not found," never a 403 that would confirm the resource exists. `/graphiql` is dev-only (gated behind `dev_routes`, alongside LiveDashboard).
   * State durability: each elevator's live state is persisted (`elevators.state`, jsonb) on every request/tick and restored on boot, so a crash or redeploy resumes in place instead of resetting every elevator to idle at its min floor
   * CI (`.github/workflows/ci.yml`): `mix format --check-formatted` and `mix test` run against a Postgres service container on every push/PR
 
@@ -28,7 +28,13 @@ To start your Phoenix server:
   * Run `mix setup` to install dependencies and set up the database
   * Start Phoenix endpoint with `mix phx.server` or inside IEx with `iex -S mix phx.server`
 
-Every request to `/graphql` requires an `x-api-key` header — the dev default is `dev-local-key` (see `config/dev.exs`; production requires the `API_KEY` env var). `mix setup` seeds one building with two elevators, so you can try:
+Every request to `/graphql` requires an `x-api-key` header tied to a real customer — there's no shared/static key. `mix setup` seeds a "Dev Customer" (one building, two elevators) and prints their API key once at the end of the seed output; copy it from there. To onboard another customer at any time:
+
+```
+mix customers.create "Acme Corp"
+```
+
+which prints that customer's key once (only its hash is stored — there's no way to recover it afterward; create a new customer if it's lost). Then:
 
 ```graphql
 { elevators { id currentFloor direction mode } }
@@ -52,7 +58,7 @@ using a client that can set the header, e.g.:
 ```
 curl http://localhost:4000/graphql \
   -H "content-type: application/json" \
-  -H "x-api-key: dev-local-key" \
+  -H "x-api-key: <the key mix setup printed>" \
   -d '{"query": "{ elevators { id currentFloor direction mode } }"}'
 ```
 
@@ -83,15 +89,28 @@ required — point Fly's health check at that, not `/graphql`.
 ```
 fly launch --no-deploy          # creates the app; pick region/org, and either
                                  # attach an existing Postgres or let it provision one
-fly secrets set API_KEY=$(openssl rand -hex 32)
 fly deploy --remote-only
+fly ssh console -C "/app/bin/elevator_api eval ElevatorApi.Release.migrate()"
+fly ssh console -C "/app/bin/elevator_api rpc 'ElevatorApi.Customers.create_customer(\"Acme Corp\") |> IO.inspect()'"
 ```
 
 `SECRET_KEY_BASE` and `DATABASE_URL` are set automatically by `fly launch`'s
 Postgres attachment (`config/runtime.exs` already reads both, and raises
-clearly at boot if either is missing). `API_KEY` is the one secret you must
-set yourself — it's the shared `x-api-key` value every `/graphql` request in
-production must send.
+clearly at boot if either is missing). There's no `API_KEY` secret to set —
+auth is per-customer now; the last command above onboards the first real
+customer against the live deployment and prints their key once, the same
+way `mix customers.create` does locally.
+
+I verified the two release commands themselves locally (`bin/elevator_api eval`
+does *not* have the app's supervision tree running, so `migrate` deliberately
+starts its own Repo connection rather than relying on that — which is exactly
+why the generator gave it its own `Release.migrate/0` instead of calling
+`Ecto.Migrator` directly; `bin/elevator_api rpc` connects to an already-running
+node, where the Repo *is* up, and correctly returned the customer + key). What
+I have **not** verified is the exact `fly ssh console -C "..."` invocation
+against a real Fly app — that part is untested; if the quoting doesn't survive
+SSH, drop into `fly ssh console` interactively and run the same
+`/app/bin/elevator_api rpc '...'` command directly.
 
 **Use `--remote-only` on `fly deploy`.** Building the Docker image locally
 on this machine failed with a TLS certificate error (`unsupported_certificate`)

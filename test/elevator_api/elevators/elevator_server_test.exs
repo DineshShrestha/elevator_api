@@ -6,6 +6,7 @@ defmodule ElevatorApi.Elevators.ElevatorServerTest do
   use ElevatorApi.DataCase, async: false
 
   alias ElevatorApi.Buildings
+  alias ElevatorApi.Customers
   alias ElevatorApi.Elevators
   alias ElevatorApi.Elevators.{CarRequest, ElevatorServer, ElevatorSupervisor, HallRequest}
 
@@ -16,15 +17,17 @@ defmodule ElevatorApi.Elevators.ElevatorServerTest do
   end
 
   defp create_persisted_elevator! do
+    {:ok, customer, _api_key} = Customers.create_customer("Acme Corp")
+
     {:ok, building} =
-      Buildings.create_building(%{name: "Office Tower", min_floor: 1, max_floor: 10})
+      Buildings.create_building(customer.id, %{name: "Office Tower", min_floor: 1, max_floor: 10})
 
     {:ok, elevator} =
       Elevators.create_elevator(%{building_id: building.id, min_floor: 1, max_floor: 10})
 
     on_exit(fn -> ElevatorSupervisor.stop_elevator(elevator.id) end)
 
-    elevator
+    %{elevator: elevator, customer: customer}
   end
 
   test "starts at its minimum floor", %{id: id} do
@@ -86,7 +89,7 @@ defmodule ElevatorApi.Elevators.ElevatorServerTest do
   end
 
   test "recovers in-flight state after a crash/restart instead of resetting" do
-    elevator = create_persisted_elevator!()
+    %{elevator: elevator, customer: customer} = create_persisted_elevator!()
 
     ElevatorServer.add_hall_request(elevator.id, HallRequest.new(3, :up))
     pid = GenServer.whereis(ElevatorServer.via_tuple(elevator.id))
@@ -103,7 +106,7 @@ defmodule ElevatorApi.Elevators.ElevatorServerTest do
     ElevatorSupervisor.stop_elevator(elevator.id)
     assert Elevators.get_elevator_state(elevator.id) == {:error, :not_found}
 
-    {:ok, persisted} = Elevators.get_elevator(elevator.id)
+    {:ok, persisted} = Elevators.get_elevator(elevator.id, customer.id)
 
     {:ok, _pid} =
       ElevatorSupervisor.start_elevator(%{

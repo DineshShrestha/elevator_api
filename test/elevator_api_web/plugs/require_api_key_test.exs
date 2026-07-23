@@ -1,12 +1,11 @@
 defmodule ElevatorApiWeb.Plugs.RequireApiKeyTest do
-  use ExUnit.Case, async: true
+  use ElevatorApi.DataCase, async: true
 
   import Plug.Test
   import Plug.Conn
 
+  alias ElevatorApi.Customers
   alias ElevatorApiWeb.Plugs.RequireApiKey
-
-  @configured_key Application.compile_env(:elevator_api, :api_key)
 
   test "halts with 401 when the header is missing" do
     conn = conn(:post, "/graphql") |> RequireApiKey.call([])
@@ -25,12 +24,16 @@ defmodule ElevatorApiWeb.Plugs.RequireApiKeyTest do
     assert conn.status == 401
   end
 
-  test "passes through when the key matches" do
+  test "passes through and assigns the customer when the key matches" do
+    {:ok, customer, api_key} = Customers.create_customer("Acme Corp")
+
     conn =
       conn(:post, "/graphql")
-      |> put_req_header("x-api-key", @configured_key)
+      |> put_req_header("x-api-key", api_key)
       |> RequireApiKey.call([])
 
     refute conn.halted
+    assert conn.assigns.current_customer.id == customer.id
+    assert conn.private.absinthe.context.current_customer.id == customer.id
   end
 end

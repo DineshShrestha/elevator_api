@@ -5,20 +5,20 @@ defmodule ElevatorApi.Buildings do
   alias ElevatorApi.Elevators.{Elevator, ElevatorSupervisor}
   alias ElevatorApi.Repo
 
-  def list_buildings do
-    Repo.all(Building)
+  def list_buildings(customer_id) do
+    Repo.all(from b in Building, where: b.customer_id == ^customer_id)
   end
 
-  def get_building(id) do
-    case Repo.get(Building, id) do
+  def get_building(id, customer_id) do
+    case Repo.get_by(Building, id: id, customer_id: customer_id) do
       nil -> {:error, :not_found}
       building -> {:ok, building}
     end
   end
 
-  def create_building(attrs) do
+  def create_building(customer_id, attrs) do
     %Building{}
-    |> Building.changeset(attrs)
+    |> Building.changeset(Map.put(attrs, :customer_id, customer_id))
     |> Repo.insert()
   end
 

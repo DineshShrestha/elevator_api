@@ -45,8 +45,8 @@ defmodule ElevatorApi.Elevators do
     :exit, _ -> {:error, :not_found}
   end
 
-  def request_hall_call(building_id, floor, direction) do
-    with {:ok, building} <- Buildings.get_building(building_id),
+  def request_hall_call(customer_id, building_id, floor, direction) do
+    with {:ok, building} <- Buildings.get_building(building_id, customer_id),
          :ok <- validate_floor_in_range(floor, building) do
       hall_request = HallRequest.new(floor, direction)
       building_elevator_states = list_elevator_states_for_building(building_id)
@@ -82,8 +82,27 @@ defmodule ElevatorApi.Elevators do
     |> Enum.filter(&MapSet.member?(elevator_ids, &1.id))
   end
 
-  def get_elevator(id) do
-    case Repo.get(Elevator, id) do
+  def list_elevator_states_for_customer(customer_id) do
+    elevator_ids =
+      from(e in Elevator,
+        join: b in assoc(e, :building),
+        where: b.customer_id == ^customer_id,
+        select: e.id
+      )
+      |> Repo.all()
+      |> MapSet.new()
+
+    list_elevator_states()
+    |> Enum.filter(&MapSet.member?(elevator_ids, &1.id))
+  end
+
+  def get_elevator(id, customer_id) do
+    query =
+      from e in Elevator,
+        join: b in assoc(e, :building),
+        where: e.id == ^id and b.customer_id == ^customer_id
+
+    case Repo.one(query) do
       nil -> {:error, :not_found}
       elevator -> {:ok, elevator}
     end
