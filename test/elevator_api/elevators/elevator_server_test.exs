@@ -37,4 +37,35 @@ defmodule ElevatorApi.Elevators.ElevatorServerTest do
 
     assert MapSet.member?(state.car_requests, 8)
   end
+
+  test "ticks toward and arrives at a requested floor", %{id: id} do
+    # starts at floor 1; reaching floor 2 takes: pick target, move, arrive
+    ElevatorServer.add_hall_request(id, HallRequest.new(2, :up))
+    pid = GenServer.whereis(ElevatorServer.via_tuple(id))
+
+    send(pid, :tick)
+    send(pid, :tick)
+    send(pid, :tick)
+    state = ElevatorServer.get_state(id)
+
+    assert state.current_floor == 2
+    assert state.door_state == :open
+    assert MapSet.size(state.pending_up) == 0
+  end
+
+  test "stops ticking once idle again", %{id: id} do
+    ElevatorServer.add_hall_request(id, HallRequest.new(2, :up))
+    pid = GenServer.whereis(ElevatorServer.via_tuple(id))
+
+    # pick target, move, arrive (opens door), close door
+    send(pid, :tick)
+    send(pid, :tick)
+    send(pid, :tick)
+    send(pid, :tick)
+    state = ElevatorServer.get_state(id)
+
+    assert state.current_floor == 2
+    assert state.door_state == :closed
+    assert state.current_target == nil
+  end
 end

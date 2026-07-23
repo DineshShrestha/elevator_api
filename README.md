@@ -11,8 +11,9 @@ Implemented so far:
   * `Elevators.ElevatorServer`, a GenServer per elevator (registered in `ElevatorApi.Elevators.Registry`, supervised by `ElevatorApi.Elevators.ElevatorSupervisor`), started for every persisted elevator on boot
   * `Elevators.GroupController`, implementing the hall request assignment rules from the design notes: eligibility (rejects maintenance/emergency/out-of-service elevators), a distance + direction-penalty + pending-stop-penalty score, with elevator ID as the tie-break
   * GraphQL: `elevators`/`elevator(id)` queries and a `requestHallCall(floor, direction)` mutation
+  * `Elevators.Scheduler`, a discrete-tick movement simulation: once assigned a request, an elevator picks a target floor, travels one floor per tick (`config :elevator_api, :elevator_tick_interval_ms`, default 1000ms), opens its door on arrival, then closes it and goes idle — all reflected live in `ElevatorState`'s `direction`/`movement_state`/`door_state`/`current_target`/pending fields
 
-Not yet implemented: physical movement simulation (an elevator doesn't actually travel between floors or open/close its doors over time — hall/car requests are recorded on the target `ElevatorState` but nothing "ticks"). See [`notes/`](notes) for the design docs:
+Known simplification: once en route to a target floor, an elevator won't reroute mid-transit even if a closer request arrives — it finishes the current target, then re-scans for the next one. See [`notes/`](notes) for the design docs:
 
   * [`notes/01_elevator_state.md`](notes/01_elevator_state.md) — elevator runtime state
   * [`notes/02_group_controller.md`](notes/02_group_controller.md) — hall request assignment rules

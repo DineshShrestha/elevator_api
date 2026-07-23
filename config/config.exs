@@ -9,7 +9,8 @@ import Config
 
 config :elevator_api,
   ecto_repos: [ElevatorApi.Repo],
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime],
+  elevator_tick_interval_ms: 1000
 
 # Configures the endpoint
 config :elevator_api, ElevatorApiWeb.Endpoint,
