@@ -14,8 +14,8 @@ defmodule ElevatorApi.Application do
       {Phoenix.PubSub, name: ElevatorApi.PubSub},
       # Start the Finch HTTP client for sending emails
       {Finch, name: ElevatorApi.Finch},
-      # Start a worker by calling: ElevatorApi.Worker.start_link(arg)
-      # {ElevatorApi.Worker, arg},
+      {Registry, keys: :unique, name: ElevatorApi.Elevators.Registry},
+      ElevatorApi.Elevators.ElevatorSupervisor,
       # Start to serve requests, typically the last entry
       ElevatorApiWeb.Endpoint
     ]
@@ -23,7 +23,11 @@ defmodule ElevatorApi.Application do
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: ElevatorApi.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    with {:ok, pid} <- Supervisor.start_link(children, opts) do
+      ElevatorApi.Elevators.start_all_from_db()
+      {:ok, pid}
+    end
   end
 
   # Tell Phoenix to update the endpoint configuration
