@@ -5,18 +5,12 @@ defmodule ElevatorApi.ElevatorsTest do
 
   alias ElevatorApi.Buildings
   alias ElevatorApi.Elevators
-  alias ElevatorApi.Elevators.ElevatorServer
 
-  defp start_elevator(id, min_floor, max_floor) do
-    start_supervised!(
-      {ElevatorServer, %{id: id, min_floor: min_floor, max_floor: max_floor}},
-      id: {ElevatorServer, id}
-    )
-  end
-
-  defp create_building! do
+  defp create_building!(attrs \\ %{}) do
     {:ok, building} =
-      Buildings.create_building(%{name: "Office Tower", min_floor: 1, max_floor: 20})
+      Buildings.create_building(
+        Map.merge(%{name: "Office Tower", min_floor: 1, max_floor: 20}, attrs)
+      )
 
     building
   end
@@ -24,9 +18,11 @@ defmodule ElevatorApi.ElevatorsTest do
   # Elevators.create_elevator/1 starts its GenServer under the application's
   # global ElevatorSupervisor, not ExUnit's test-scoped supervisor, so it
   # isn't cleaned up automatically like start_supervised! children are.
-  defp create_elevator!(building) do
+  defp create_elevator!(building, attrs \\ %{}) do
     {:ok, elevator} =
-      Elevators.create_elevator(%{building_id: building.id, min_floor: 1, max_floor: 10})
+      Elevators.create_elevator(
+        Map.merge(%{building_id: building.id, min_floor: 1, max_floor: 10}, attrs)
+      )
 
     on_exit(fn -> ElevatorApi.Elevators.ElevatorSupervisor.stop_elevator(elevator.id) end)
 
@@ -34,20 +30,39 @@ defmodule ElevatorApi.ElevatorsTest do
   end
 
   test "assigns a hall call to the nearest suitable elevator" do
-    far = System.unique_integer([:positive])
-    near = System.unique_integer([:positive])
+    building = create_building!()
+    far = create_elevator!(building, %{min_floor: 1, max_floor: 20})
+    near = create_elevator!(building, %{min_floor: 8, max_floor: 20})
 
-    start_elevator(far, 1, 20)
-    start_elevator(near, 8, 20)
+    {:ok, assigned_state} = Elevators.request_hall_call(building.id, 9, :up)
 
-    {:ok, assigned_state} = Elevators.request_hall_call(9, :up)
-
-    assert assigned_state.id == near
+    assert assigned_state.id == near.id
+    refute assigned_state.id == far.id
     assert MapSet.member?(assigned_state.pending_up, 9)
   end
 
-  test "returns an error when no elevator is running" do
-    assert Elevators.request_hall_call(3, :up) == {:error, :no_available_elevator}
+  test "does not assign a hall call to an elevator in a different building" do
+    building_a = create_building!()
+    building_b = create_building!()
+    create_elevator!(building_a)
+
+    assert Elevators.request_hall_call(building_b.id, 3, :up) == {:error, :no_available_elevator}
+  end
+
+  test "returns an error when no elevator is running in the building" do
+    building = create_building!()
+    assert Elevators.request_hall_call(building.id, 3, :up) == {:error, :no_available_elevator}
+  end
+
+  test "returns an error for an unknown building" do
+    assert Elevators.request_hall_call(-1, 3, :up) == {:error, :building_not_found}
+  end
+
+  test "returns an error when the floor is outside the building's range" do
+    building = create_building!(%{min_floor: 1, max_floor: 10})
+    create_elevator!(building)
+
+    assert Elevators.request_hall_call(building.id, 50, :up) == {:error, :floor_out_of_range}
   end
 
   test "create_elevator/1 persists the row and starts a GenServer" do

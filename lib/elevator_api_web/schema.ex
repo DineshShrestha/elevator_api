@@ -34,6 +34,7 @@ defmodule ElevatorApiWeb.Schema do
 
   mutation do
     field :request_hall_call, :elevator_state do
+      arg(:building_id, non_null(:id))
       arg(:floor, non_null(:integer))
       arg(:direction, non_null(:hall_direction))
       resolve(&ElevatorResolver.request_hall_call/3)

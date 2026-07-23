@@ -13,10 +13,16 @@ defmodule ElevatorApiWeb.Resolvers.ElevatorResolver do
     end
   end
 
-  def request_hall_call(_parent, %{floor: floor, direction: direction}, _resolution) do
-    case Elevators.request_hall_call(floor, direction) do
+  def request_hall_call(
+        _parent,
+        %{building_id: building_id, floor: floor, direction: direction},
+        _resolution
+      ) do
+    case Elevators.request_hall_call(building_id, floor, direction) do
       {:ok, state} -> {:ok, state}
-      {:error, reason} -> {:error, to_string(reason)}
+      {:error, :building_not_found} -> {:error, "building not found"}
+      {:error, :floor_out_of_range} -> {:error, "floor is out of range for this building"}
+      {:error, :no_available_elevator} -> {:error, "no available elevator"}
     end
   end
 

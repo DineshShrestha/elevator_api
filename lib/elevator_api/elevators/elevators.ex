@@ -1,4 +1,7 @@
 defmodule ElevatorApi.Elevators do
+  import Ecto.Query
+
+  alias ElevatorApi.Buildings
   alias ElevatorApi.Repo
 
   alias ElevatorApi.Elevators.{
@@ -33,16 +36,41 @@ defmodule ElevatorApi.Elevators do
     end
   end
 
-  def request_hall_call(floor, direction) do
-    hall_request = HallRequest.new(floor, direction)
+  def request_hall_call(building_id, floor, direction) do
+    with {:ok, building} <- Buildings.get_building(building_id),
+         :ok <- validate_floor_in_range(floor, building) do
+      hall_request = HallRequest.new(floor, direction)
+      building_elevator_states = list_elevator_states_for_building(building_id)
 
-    case GroupController.assign(list_elevator_states(), hall_request) do
-      {:ok, elevator_id} ->
-        {:ok, ElevatorServer.add_hall_request(elevator_id, hall_request)}
+      case GroupController.assign(building_elevator_states, hall_request) do
+        {:ok, elevator_id} ->
+          {:ok, ElevatorServer.add_hall_request(elevator_id, hall_request)}
 
-      {:error, :no_available_elevator} = error ->
-        error
+        {:error, :no_available_elevator} = error ->
+          error
+      end
+    else
+      {:error, :not_found} -> {:error, :building_not_found}
+      {:error, :floor_out_of_range} = error -> error
     end
+  end
+
+  defp validate_floor_in_range(floor, building) do
+    if floor in building.min_floor..building.max_floor do
+      :ok
+    else
+      {:error, :floor_out_of_range}
+    end
+  end
+
+  defp list_elevator_states_for_building(building_id) do
+    elevator_ids =
+      from(e in Elevator, where: e.building_id == ^building_id, select: e.id)
+      |> Repo.all()
+      |> MapSet.new()
+
+    list_elevator_states()
+    |> Enum.filter(&MapSet.member?(elevator_ids, &1.id))
   end
 
   def get_elevator(id) do
