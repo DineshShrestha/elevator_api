@@ -9,6 +9,12 @@ defmodule ElevatorApiWeb.Router do
     plug ElevatorApiWeb.Plugs.RequireApiKey
   end
 
+  scope "/", ElevatorApiWeb do
+    pipe_through :api
+
+    get "/healthz", HealthController, :index
+  end
+
   scope "/api", ElevatorApiWeb do
     pipe_through :api
   end

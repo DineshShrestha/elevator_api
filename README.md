@@ -71,6 +71,39 @@ mix run -e '
 
 Ready to run in production? Please [check our deployment guides](https://hexdocs.pm/phoenix/deployment.html).
 
+## Deploying to Fly.io
+
+A `Dockerfile`, `.dockerignore`, and release files (`lib/elevator_api/release.ex`,
+`rel/overlays/bin/migrate`, `rel/overlays/bin/server`) are already in place —
+generated via `mix phx.gen.release --docker` (the Docker files were then
+hand-written since the generator's Docker Hub version lookup failed on this
+network; see below). `GET /healthz` returns a plain `200 ok` with no auth
+required — point Fly's health check at that, not `/graphql`.
+
+```
+fly launch --no-deploy          # creates the app; pick region/org, and either
+                                 # attach an existing Postgres or let it provision one
+fly secrets set API_KEY=$(openssl rand -hex 32)
+fly deploy --remote-only
+```
+
+`SECRET_KEY_BASE` and `DATABASE_URL` are set automatically by `fly launch`'s
+Postgres attachment (`config/runtime.exs` already reads both, and raises
+clearly at boot if either is missing). `API_KEY` is the one secret you must
+set yourself — it's the shared `x-api-key` value every `/graphql` request in
+production must send.
+
+**Use `--remote-only` on `fly deploy`.** Building the Docker image locally
+on this machine failed with a TLS certificate error (`unsupported_certificate`)
+reaching both Docker Hub and `builds.hex.pm`, from inside `docker build`
+itself — the signature of a TLS-inspecting corporate proxy/firewall rejecting
+Erlang's stricter certificate validation. `curl` to the same hosts worked
+fine, so it's specific to Erlang's TLS client, not a real network outage.
+`--remote-only` builds on Fly's own remote builders instead of locally,
+which won't have this machine's proxy in the path. If you're deploying from
+a different network without this restriction, a plain `fly deploy` should
+work too.
+
 ## Learn more
 
   * Official website: https://www.phoenixframework.org/
