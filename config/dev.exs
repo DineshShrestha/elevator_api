@@ -52,6 +52,10 @@ config :elevator_api, ElevatorApiWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :elevator_api, dev_routes: true
 
+# A non-secret local default so the GraphQL API is usable out of the box in
+# dev (only bound to loopback). Production requires the API_KEY env var.
+config :elevator_api, :api_key, "dev-local-key"
+
 # Do not include metadata nor timestamps in development logs
 config :logger, :console, format: "[$level] $message\n"
 

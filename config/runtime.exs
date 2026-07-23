@@ -51,6 +51,15 @@ if config_env() == :prod do
   host = System.get_env("PHX_HOST") || "example.com"
   port = String.to_integer(System.get_env("PORT") || "4000")
 
+  api_key =
+    System.get_env("API_KEY") ||
+      raise """
+      environment variable API_KEY is missing.
+      This is the shared secret clients must send as the x-api-key header.
+      """
+
+  config :elevator_api, :api_key, api_key
+
   config :elevator_api, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   config :elevator_api, ElevatorApiWeb.Endpoint,

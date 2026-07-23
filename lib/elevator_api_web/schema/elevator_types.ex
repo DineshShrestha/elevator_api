@@ -53,4 +53,10 @@ defmodule ElevatorApiWeb.Schema.ElevatorTypes do
 
     field :current_target, :integer
   end
+
+  input_object :elevator_input do
+    field :building_id, non_null(:id)
+    field :min_floor, non_null(:integer)
+    field :max_floor, non_null(:integer)
+  end
 end

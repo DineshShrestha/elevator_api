@@ -44,4 +44,42 @@ defmodule ElevatorApi.Elevators do
         error
     end
   end
+
+  def get_elevator(id) do
+    case Repo.get(Elevator, id) do
+      nil -> {:error, :not_found}
+      elevator -> {:ok, elevator}
+    end
+  end
+
+  def create_elevator(attrs) do
+    with {:ok, elevator} <- %Elevator{} |> Elevator.changeset(attrs) |> Repo.insert() do
+      ElevatorSupervisor.start_elevator(%{
+        id: elevator.id,
+        min_floor: elevator.min_floor,
+        max_floor: elevator.max_floor
+      })
+
+      {:ok, elevator}
+    end
+  end
+
+  def update_elevator(%Elevator{} = elevator, attrs) do
+    with {:ok, updated} <- elevator |> Elevator.changeset(attrs) |> Repo.update() do
+      ElevatorSupervisor.stop_elevator(updated.id)
+
+      ElevatorSupervisor.start_elevator(%{
+        id: updated.id,
+        min_floor: updated.min_floor,
+        max_floor: updated.max_floor
+      })
+
+      {:ok, updated}
+    end
+  end
+
+  def delete_elevator(%Elevator{} = elevator) do
+    ElevatorSupervisor.stop_elevator(elevator.id)
+    Repo.delete(elevator)
+  end
 end

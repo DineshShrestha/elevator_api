@@ -15,4 +15,11 @@ defmodule ElevatorApi.Elevators.ElevatorSupervisor do
   def start_elevator(%{id: _id, min_floor: _min_floor, max_floor: _max_floor} = attrs) do
     DynamicSupervisor.start_child(__MODULE__, {ElevatorServer, attrs})
   end
+
+  def stop_elevator(id) do
+    case GenServer.whereis(ElevatorServer.via_tuple(id)) do
+      nil -> :ok
+      pid -> DynamicSupervisor.terminate_child(__MODULE__, pid)
+    end
+  end
 end
